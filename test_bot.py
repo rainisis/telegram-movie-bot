@@ -107,3 +107,103 @@ async def show_main_menu(update, context):
         caption=text,
         reply_markup=markup
     )
+    async def check_subs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    query = update.callback_query
+    await query.answer()
+    logger.info(f"Пользователь {user_id} проверяет подписку.")
+    if not await check_subscriptions(user_id, context.bot):
+        try:
+            await query.edit_message_text(
+                "⚠️Для использования бота необходимо подписаться на каналы:",
+                reply_markup=get_subscribe_keyboard()
+            )
+        except Exception:
+            await query.message.reply_text(
+                "⚠️Для использования бота необходимо подписаться на каналы:",
+                reply_markup=get_subscribe_keyboard()
+            )
+        return
+    await show_main_menu(update, context)
+
+async def search_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    try:
+        await query.edit_message_text("Введите код фильма (только цифры):")
+    except Exception:
+        await query.message.reply_text("Введите код фильма (только цифры):")
+    context.user_data["search"] = True
+    return SEARCH_CODE
+
+async def search_code_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    code = update.message.text.strip()
+    logger.info(f"Пользователь {user_id} ищет фильм по коду: {code}")
+    
+    if not code.isdigit():
+        await update.message.reply_text(
+            "❌ Код должен содержать только цифры. Попробуйте еще раз:"
+        )
+        return SEARCH_CODE
+        
+    if code not in movies:
+        await update.message.reply_text(
+            "❌ Фильм с таким кодом не найден. Попробуйте еще раз:"
+        )
+        return SEARCH_CODE
+        
+    if not await check_subscriptions(user_id, context.bot):
+        await update.message.reply_text(
+            "⚠️Для просмотра фильма подпишитесь на каналы:",
+            reply_markup=get_subscribe_keyboard()
+        )
+        return ConversationHandler.END
+        
+    film = movies[code]
+    # Увеличиваем счетчик просмотров
+    if 'views' not in film:
+        film['views'] = 0
+    film['views'] += 1
+    save_movies(movies)
+    
+    text = (
+        f"*Название:* {film['title']}\n\n"
+        f"*Описание:*\n{film['description']}\n\n"
+        f"*Ссылки для просмотра ниже 👇*"
+    )
+    
+    film_buttons = [
+        [InlineKeyboardButton("▶️ Смотреть на YouTube", url=film['youtube'])],
+        [InlineKeyboardButton("🎬 Смотреть ВКонтакте", url=film['vk'])]
+    ]
+    
+    try:
+        await update.message.reply_photo(
+            film['photo_id'],
+            caption=text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(film_buttons)
+        )
+    except Exception as e:
+        logger.error(f"Ошибка при отправке фото: {e}")
+        await update.message.reply_text(
+            f"⚠️ Не удалось отправить фото фильма.\n\n{text}",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(film_buttons)
+        )
+    return ConversationHandler.END
+
+async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    buttons = [
+        [InlineKeyboardButton("➕ Добавить фильм", callback_data="add_movie")],
+        [InlineKeyboardButton("📋 Список фильмов", callback_data="list_movies_0")],
+        [InlineKeyboardButton("📊 Статистика", callback_data="stats")],
+        [InlineKeyboardButton("🏠 В меню", callback_data="menu")]
+    ]
+    try:
+        await query.edit_message_text("⚙️ Админ-меню", reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception:
+        await query.message.reply_text("⚙️ Админ-меню", reply_markup=InlineKeyboardMarkup(buttons))
